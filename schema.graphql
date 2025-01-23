@@ -1,0 +1,207 @@
+enum Network {
+  TAIKO
+}
+
+type Token @entity {
+  " Smart contract address of the token "
+  id: ID!
+
+  " Name of the token, mirrored from the smart contract "
+  name: String!
+
+  " Symbol of the token, mirrored from the smart contract "
+  symbol: String!
+
+  " The number of decimal places this token uses, default to 18 "
+  decimals: Int!
+
+  " Optional field to track the block number of the last token price "
+  lastPriceBlockNumber: BigInt
+
+  " the market ID for underlying/asset token, aToken, vToken and sToken"
+  _market: Market
+
+  " type of token: aToken, inputToken, sToken, or vToken "
+  _type: String
+}
+
+#############################
+##### Protocol Metadata #####
+#############################
+
+interface IProtocol {
+  " Smart contract address of the protocol's main contract (Factory, Registry, etc) "
+  id: ID!
+
+  " Name of the protocol, including version. e.g. Uniswap v3 "
+  name: String!
+
+  " Slug of protocol, including version. e.g. uniswap-v3 "
+  slug: String!
+
+  " The blockchain network this subgraph is indexing on "
+  network: Network!
+
+  ##### Quantitative Data #####
+
+  " Number of cumulative unique users "
+  cumulativeUniqueUsers: Int!
+
+  " Total number of pools "
+  totalPoolCount: Int!
+}
+
+type Protocol implements IProtocol @entity {
+  " Smart contract address of the protocol's main contract (Factory, Registry, etc) "
+  id: ID!
+
+  " Name of the protocol, including version. e.g. Aave v2 "
+  name: String!
+
+  " Slug of protocol, including version. e.g. aave-v2 "
+  slug: String!
+
+  " The blockchain network this subgraph is indexing on "
+  network: Network!
+
+  ##### Quantitative Data #####
+
+  " Number of cumulative unique users "
+  cumulativeUniqueUsers: Int!
+
+  " Total number of pools "
+  totalPoolCount: Int!
+
+  ##### Markets #####
+
+  " All markets that belong to this protocol "
+  markets: [Market!]! @derivedFrom(field: "protocol")
+
+  " Total supply of tokens in USD "
+  totalSupplyUSD: BigDecimal!
+
+  " Total borrow of tokens in USD "
+  totalBorrowUSD: BigDecimal!
+
+  " Total points distributed "
+  totalPoints: BigDecimal!
+
+  ##### Add Ons #####
+
+  " A list of all markets in the snapshot "
+  _marketIDs: [String!]!
+}
+
+type ProtocolAccount @entity {
+  " { Index } "
+  id: ID!
+
+  " Protocol "
+  protocol: Protocol!
+
+  " Account "
+  account: Account!
+}
+
+type Market @entity {
+  " Smart contract address of the market "
+  id: ID!
+
+  " The protocol this pool belongs to "
+  protocol: Protocol!
+
+  " Name of market "
+  name: String
+
+  " Token that need to be deposited to take a position in protocol "
+  inputToken: Token!
+
+  " Token that is minted to track ownership of position in protocol (e.g. aToken, cToken). Leave as null if doesn't exist "
+  outputToken: Token
+
+  ##### Token Balances #####
+
+  " Price per share of input token in USD "
+  inputTokenPriceUSD: BigDecimal!
+
+  " Creation timestamp "
+  createdTimestamp: BigInt!
+
+  " Creation block number "
+  createdBlockNumber: BigInt!
+
+  ##### Add Ons #####
+
+  " The variable debt token address correlated to the reserve asset "
+  _vToken: Token
+
+  " The stable debt token address correlated to the reserve asset "
+  _sToken: Token
+}
+
+type MarketAccount @entity {
+  " { Account address } "
+  id: ID!
+
+  " Market "
+  market: Market!
+
+  " Account "
+  account: Account!
+
+  " Amount of token supplied to the market "
+  supplied: BigInt!
+
+  " Amount of token borrowed from the market "
+  borrowed: BigInt!
+}
+
+##############################
+##### Account-Level Data #####
+##############################
+
+type Account @entity {
+  " { Account address } "
+  id: ID!
+
+  " Number of protocols this account interacted with "
+  protocols: [ProtocolAccount!]! @derivedFrom(field: "account")
+
+  " Markets this account interacted with "
+  markets: [MarketAccount!]! @derivedFrom(field: "account")
+
+  " Total supply of tokens in USD "
+  totalSupplyUSD: BigDecimal!
+
+  " Total borrow of tokens in USD "
+  totalBorrowUSD: BigDecimal!
+
+  " Total points distributed "
+  totalPoints: BigDecimal!
+}
+
+###############################
+##### Snapshot-Level Data #####
+###############################
+
+type Snapshot @entity {
+  " { Day timestamp } "
+  id: ID!
+
+  " Start of day timestamp "
+  timestamp: BigInt!
+
+  " Protocol "
+  protocol: Protocol!
+
+  " Number of accounts that made deposits on this day "
+  accountCount: Int!
+
+  " Total supply of tokens in USD "
+  totalSupplyUSD: BigDecimal!
+
+  " Total borrow of tokens in USD "
+  totalBorrowUSD: BigDecimal!
+
+  points: BigDecimal!
+}
