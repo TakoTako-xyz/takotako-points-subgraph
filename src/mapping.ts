@@ -15,8 +15,6 @@ import {
   ReserveDataUpdated,
   Withdraw,
 } from "./types/LendingPool/LendingPool";
-import { AToken } from "./types/LendingPool/AToken";
-import { VariableDebtToken } from "./types/LendingPool/VariableDebtToken";
 import { Transfer as CollateralTransfer } from "./types/templates/AToken/AToken";
 import { Transfer as VariableTransfer } from "./types/templates/VariableDebtToken/VariableDebtToken";
 import {
@@ -35,15 +33,15 @@ import {
   Token,
 } from "./types/schema";
 import {
-  createAccount,
   exponentToBigDecimal,
   getDecimalsOfMarkets,
   getMarketByAuxillaryToken,
+  getOrCreateAccount,
   getOrCreateMarket,
-  getOrCreateMarketAccount,
   getOrCreateProtocol,
   getOrCreateToken,
   getPriceOfMarkets,
+  updateMarketAccount,
 } from "./helpers";
 import {
   AToken as ATokenTemplate,
@@ -138,27 +136,10 @@ export function handleDeposit(event: Deposit): void {
   const protocol = getOrCreateProtocol(protocolData);
 
   // create account
-  let account = Account.load(accountID.toHexString());
-  if (!account) {
-    account = createAccount(accountID.toHexString(), protocol);
-
-    protocol.cumulativeUniqueUsers += 1;
-    protocol.save();
-  }
-  account.save();
+  const account = getOrCreateAccount(accountID.toHexString(), protocol);
 
   // update market account
-  const accountMarket = getOrCreateMarketAccount(market.id, account.id);
-  const aTokenContract = AToken.bind(Address.fromString(market.outputToken!));
-  const aBalanceResult = aTokenContract.try_balanceOf(accountID);
-  if (aBalanceResult.reverted) {
-    log.warning("[Deposit] Error getting balance for account: {}", [
-      accountID.toHexString(),
-    ]);
-  } else {
-    accountMarket.supplied = aBalanceResult.value;
-  }
-  accountMarket.save();
+  updateMarketAccount(market, account.id);
 
   protocol.save();
   market.save();
@@ -179,27 +160,10 @@ export function handleWithdraw(event: Withdraw): void {
   const protocol = getOrCreateProtocol(protocolData);
 
   // get account
-  let account = Account.load(accountID.toHexString());
-  if (!account) {
-    account = createAccount(accountID.toHexString(), protocol);
-
-    protocol.cumulativeUniqueUsers += 1;
-    protocol.save();
-  }
-  account.save();
+  const account = getOrCreateAccount(accountID.toHexString(), protocol);
 
   // update market account
-  const accountMarket = getOrCreateMarketAccount(market.id, account.id);
-  const aTokenContract = AToken.bind(Address.fromString(market.outputToken!));
-  const aBalanceResult = aTokenContract.try_balanceOf(accountID);
-  if (aBalanceResult.reverted) {
-    log.warning("[Withdraw] Error getting balance for account: {}", [
-      accountID.toHexString(),
-    ]);
-  } else {
-    accountMarket.supplied = aBalanceResult.value;
-  }
-  accountMarket.save();
+  updateMarketAccount(market, account.id);
 }
 
 export function handleBorrow(event: Borrow): void {
@@ -216,29 +180,10 @@ export function handleBorrow(event: Borrow): void {
   const protocol = getOrCreateProtocol(protocolData);
 
   // create account
-  let account = Account.load(accountID.toHexString());
-  if (!account) {
-    account = createAccount(accountID.toHexString(), protocol);
-
-    protocol.cumulativeUniqueUsers += 1;
-    protocol.save();
-  }
-  account.save();
+  const account = getOrCreateAccount(accountID.toHexString(), protocol);
 
   // update market account
-  const accountMarket = getOrCreateMarketAccount(market.id, account.id);
-  const variableDebtContract = VariableDebtToken.bind(
-    Address.fromString(market._vToken!)
-  );
-  const vDebtBalanceResult = variableDebtContract.try_balanceOf(accountID);
-  if (vDebtBalanceResult.reverted) {
-    log.warning("[Borrow] Error getting balance for account: {}", [
-      accountID.toHexString(),
-    ]);
-  } else {
-    accountMarket.borrowed = vDebtBalanceResult.value;
-  }
-  accountMarket.save();
+  updateMarketAccount(market, account.id);
 
   // update metrics
   protocol.save();
@@ -260,29 +205,10 @@ export function handleRepay(event: Repay): void {
   const protocol = getOrCreateProtocol(protocolData);
 
   // get account
-  let account = Account.load(accountID.toHexString());
-  if (!account) {
-    account = createAccount(accountID.toHexString(), protocol);
-
-    protocol.cumulativeUniqueUsers += 1;
-    protocol.save();
-  }
-  account.save();
+  const account = getOrCreateAccount(accountID.toHexString(), protocol);
 
   // update market account
-  const accountMarket = getOrCreateMarketAccount(market.id, account.id);
-  const variableDebtContract = VariableDebtToken.bind(
-    Address.fromString(market._vToken!)
-  );
-  const vDebtBalanceResult = variableDebtContract.try_balanceOf(accountID);
-  if (vDebtBalanceResult.reverted) {
-    log.warning("[Borrow] Error getting balance for account: {}", [
-      accountID.toHexString(),
-    ]);
-  } else {
-    accountMarket.borrowed = vDebtBalanceResult.value;
-  }
-  accountMarket.save();
+  updateMarketAccount(market, account.id);
 }
 
 export function handleLiquidationCall(event: LiquidationCall): void {
@@ -301,57 +227,13 @@ export function handleLiquidationCall(event: LiquidationCall): void {
   }
   const protocol = getOrCreateProtocol(protocolData);
 
-  // update liquidators account
-  let liquidatorAccount = Account.load(liquidator.toHexString());
-  if (!liquidatorAccount) {
-    liquidatorAccount = createAccount(liquidator.toHexString(), protocol);
+  // update accounts
+  getOrCreateAccount(liquidator.toHexString(), protocol);
+  getOrCreateAccount(borrower.toHexString(), protocol);
 
-    protocol.cumulativeUniqueUsers += 1;
-    protocol.save();
-  }
-  liquidatorAccount.save();
-
-  const variableDebtContract = VariableDebtToken.bind(debtToken);
-
-  // update market account for liquidator
-  const liquidatorMarket = getOrCreateMarketAccount(
-    market.id,
-    liquidator.toHexString()
-  );
-  const vDebtLiqBalanceResult = variableDebtContract.try_balanceOf(liquidator);
-  if (vDebtLiqBalanceResult.reverted) {
-    log.warning("[Liquidate] Error getting balance for account: {}", [
-      liquidator.toHexString(),
-    ]);
-  } else {
-    liquidatorMarket.borrowed = vDebtLiqBalanceResult.value;
-  }
-  liquidatorMarket.save();
-
-  // get borrower account
-  let account = Account.load(borrower.toHexString());
-  if (!account) {
-    account = createAccount(borrower.toHexString(), protocol);
-
-    protocol.cumulativeUniqueUsers += 1;
-    protocol.save();
-  }
-  account.save();
-
-  // update market account for liquidator
-  const borrowerMarket = getOrCreateMarketAccount(
-    market.id,
-    borrower.toHexString()
-  );
-  const vDebtBorBalanceResult = variableDebtContract.try_balanceOf(borrower);
-  if (vDebtBorBalanceResult.reverted) {
-    log.warning("[Liquidate] Error getting balance for account: {}", [
-      borrower.toHexString(),
-    ]);
-  } else {
-    borrowerMarket.borrowed = vDebtBorBalanceResult.value;
-  }
-  borrowerMarket.save();
+  // update market account for liquidator and borrower
+  updateMarketAccount(market, liquidator.toHexString());
+  updateMarketAccount(market, borrower.toHexString());
 
   const repayTokenMarket = Market.load(debtToken.toHexString());
   if (!repayTokenMarket) {
@@ -360,6 +242,10 @@ export function handleLiquidationCall(event: LiquidationCall): void {
     ]);
     return;
   }
+
+  // update market account for liquidator and borrower
+  updateMarketAccount(repayTokenMarket, liquidator.toHexString());
+  updateMarketAccount(repayTokenMarket, borrower.toHexString());
 
   const debtAsset = Token.load(debtToken.toHexString());
   if (!debtAsset) {
@@ -429,85 +315,17 @@ function _handleTransfer(
   }
 
   // grab accounts
-  let toAccount = Account.load(to.toHexString());
-  if (!toAccount) {
-    toAccount = createAccount(to.toHexString(), protocol);
-
-    protocol.cumulativeUniqueUsers += 1;
-    protocol.save();
-  }
-
-  let fromAccount = Account.load(from.toHexString());
-  if (!fromAccount) {
-    fromAccount = createAccount(from.toHexString(), protocol);
-
-    protocol.cumulativeUniqueUsers += 1;
-    protocol.save();
-  }
-
-  const aTokenContract = AToken.bind(Address.fromString(market.outputToken!));
-  const variableDebtContract = VariableDebtToken.bind(
-    Address.fromString(market._vToken!)
-  );
+  const toAccount = getOrCreateAccount(to.toHexString(), protocol);
+  const fromAccount = getOrCreateAccount(from.toHexString(), protocol);
 
   // update balance from sender
   if (fromAccount) {
-    const accountMarket = getOrCreateMarketAccount(market.id, fromAccount.id);
-
-    if (positionSide === PositionSide.LENDER) {
-      const aBalanceResult = aTokenContract.try_balanceOf(
-        Address.fromString(fromAccount.id)
-      );
-      if (aBalanceResult.reverted) {
-        log.warning("[Transfer.from] Error getting balance for account: {}", [
-          fromAccount.id,
-        ]);
-      } else {
-        accountMarket.supplied = aBalanceResult.value;
-      }
-    } else if (positionSide === PositionSide.BORROWER) {
-      const vDebtBalanceResult = variableDebtContract.try_balanceOf(
-        Address.fromString(fromAccount.id)
-      );
-      if (vDebtBalanceResult.reverted) {
-        log.warning("[Transfer.from] Error getting balance for account: {}", [
-          fromAccount.id,
-        ]);
-      } else {
-        accountMarket.borrowed = vDebtBalanceResult.value;
-      }
-    }
-    accountMarket.save();
+    updateMarketAccount(market, fromAccount.id);
   }
 
   // update balance from receiver
   if (toAccount) {
-    const accountMarket = getOrCreateMarketAccount(market.id, toAccount.id);
-
-    if (positionSide === PositionSide.LENDER) {
-      const aBalanceResult = aTokenContract.try_balanceOf(
-        Address.fromString(toAccount.id)
-      );
-      if (aBalanceResult.reverted) {
-        log.warning("[Transfer.to] Error getting balance for account: {}", [
-          toAccount.id,
-        ]);
-      } else {
-        accountMarket.supplied = aBalanceResult.value;
-      }
-    } else if (positionSide === PositionSide.BORROWER) {
-      const vDebtBalanceResult = variableDebtContract.try_balanceOf(
-        Address.fromString(toAccount.id)
-      );
-      if (vDebtBalanceResult.reverted) {
-        log.warning("[Transfer.to] Error getting balance for account: {}", [
-          toAccount.id,
-        ]);
-      } else {
-        accountMarket.borrowed = vDebtBalanceResult.value;
-      }
-    }
-    accountMarket.save();
+    updateMarketAccount(market, toAccount.id);
   }
 }
 

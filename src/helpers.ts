@@ -8,6 +8,9 @@ import {
 } from "@graphprotocol/graph-ts";
 import { ERC20 } from "./types/LendingPool/ERC20";
 import { ERC20SymbolBytes } from "./types/LendingPool/ERC20SymbolBytes";
+import { GToken } from "./types/LendingPool/GToken";
+import { AToken } from "./types/LendingPool/AToken";
+import { VariableDebtToken } from "./types/LendingPool/VariableDebtToken";
 import {
   Account,
   Market,
@@ -25,7 +28,6 @@ import {
   INT_ZERO,
 } from "./constants";
 import { ProtocolData } from "./types";
-import { GToken } from "./types/LendingPool/GToken";
 
 export const INVALID_TOKEN_DECIMALS = 0;
 export const UNKNOWN_TOKEN_VALUE = "unknown";
@@ -177,19 +179,27 @@ export function getOrCreateMarket(
   return market;
 }
 
-export function createAccount(accountID: string, protocol: Protocol): Account {
-  const account = new Account(accountID);
-  account.totalBorrowUSD = BIGDECIMAL_ZERO;
-  account.totalSupplyUSD = BIGDECIMAL_ZERO;
-  account.totalPoints = BIGDECIMAL_ZERO;
-  account.save();
+export function getOrCreateAccount(
+  accountID: string,
+  protocol: Protocol
+): Account {
+  let account = Account.load(accountID);
+  if (!account) {
+    account = new Account(accountID);
+    account.totalBorrowUSD = BIGDECIMAL_ZERO;
+    account.totalSupplyUSD = BIGDECIMAL_ZERO;
+    account.totalPoints = BIGDECIMAL_ZERO;
+    account.save();
 
-  const protocolAccountID = `${protocol.id}-${protocol.cumulativeUniqueUsers}`;
-  const protocolAccount = new ProtocolAccount(protocolAccountID);
-  protocolAccount.protocol = protocol.id;
-  protocolAccount.account = account.id;
-  protocolAccount.save();
+    const protocolAccountID = `${protocol.id}-${protocol.cumulativeUniqueUsers}`;
+    const protocolAccount = new ProtocolAccount(protocolAccountID);
+    protocolAccount.protocol = protocol.id;
+    protocolAccount.account = account.id;
+    protocolAccount.save();
 
+    protocol.cumulativeUniqueUsers += 1;
+    protocol.save();
+  }
   return account;
 }
 
@@ -207,6 +217,41 @@ export function getOrCreateMarketAccount(
     accountMarket.borrowed = BIGINT_ZERO;
   }
   return accountMarket;
+}
+
+export function updateMarketAccount(market: Market, accountID: string): void {
+  const accountMarket = getOrCreateMarketAccount(market.id, accountID);
+
+  // get account balances of AToken
+  const aTokenContract = AToken.bind(Address.fromString(market.outputToken!));
+  const aBalanceResult = aTokenContract.try_balanceOf(
+    Address.fromString(accountID)
+  );
+  if (aBalanceResult.reverted) {
+    log.warning("[updateMarketAccount] Error getting balance for account: {}", [
+      accountID,
+    ]);
+    throw new Error("Error getting balance for account");
+  } else {
+    accountMarket.supplied = aBalanceResult.value;
+  }
+
+  // get account balances of VariableDebtToken
+  const variableDebtContract = VariableDebtToken.bind(
+    Address.fromString(market._vToken!)
+  );
+  const vDebtBalanceResult = variableDebtContract.try_balanceOf(
+    Address.fromString(accountID)
+  );
+  if (vDebtBalanceResult.reverted) {
+    log.warning("[updateMarketAccount] Error getting balance for account: {}", [
+      accountID,
+    ]);
+    throw new Error("Error getting balance for account");
+  } else {
+    accountMarket.borrowed = vDebtBalanceResult.value;
+  }
+  accountMarket.save();
 }
 
 // returns the market based on any auxillary token
