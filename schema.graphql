@@ -121,9 +121,6 @@ type Market @entity {
 
   ##### Token Balances #####
 
-  " Price per share of input token in USD "
-  inputTokenPriceUSD: BigDecimal!
-
   " Creation timestamp "
   createdTimestamp: BigInt!
 

@@ -16,11 +16,6 @@ export namespace Network {
   export const TAIKO = "TAIKO"; // Taiko mainnet
 }
 
-export namespace PositionSide {
-  export const LENDER = "LENDER";
-  export const BORROWER = "BORROWER";
-}
-
 export namespace TakoTakoProtocol {
   export const NAME = "TAKOTAKO";
   export const SLUG = "takotako";

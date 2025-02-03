@@ -1,9 +1,16 @@
+import {
+  Address,
+  BigInt,
+  BigDecimal,
+  ethereum,
+  log,
+  store,
+} from "@graphprotocol/graph-ts";
 import { ReserveInitialized } from "./types/LendingPoolConfigurator/LendingPoolConfigurator";
 import { ProtocolData } from "./types";
 import {
+  BIGDECIMAL_ONE,
   BIGDECIMAL_ZERO,
-  DEFAULT_DECIMALS,
-  PositionSide,
   TakoTakoProtocol,
   ZERO_ADDRESS,
 } from "./constants";
@@ -12,19 +19,10 @@ import {
   Deposit,
   LiquidationCall,
   Repay,
-  ReserveDataUpdated,
   Withdraw,
 } from "./types/LendingPool/LendingPool";
 import { Transfer as CollateralTransfer } from "./types/templates/AToken/AToken";
 import { Transfer as VariableTransfer } from "./types/templates/VariableDebtToken/VariableDebtToken";
-import {
-  Address,
-  BigInt,
-  BigDecimal,
-  ethereum,
-  log,
-} from "@graphprotocol/graph-ts";
-import { GToken } from "./types/LendingPool/GToken";
 import {
   Account,
   Market,
@@ -84,41 +82,6 @@ export function handleReserveInitialized(event: ReserveInitialized): void {
 
   // create AToken template to watch Transfer
   ATokenTemplate.create(outputToken);
-}
-
-export function handleReserveDataUpdated(event: ReserveDataUpdated): void {
-  // update rewards if there is an incentive controller
-  const market = Market.load(event.params.reserve.toHexString());
-  if (!market) {
-    log.warning("[handleReserveDataUpdated] Market not found", [
-      event.params.reserve.toHexString(),
-    ]);
-    return;
-  }
-
-  const gTokenContract = GToken.bind(Address.fromString(market.outputToken!));
-
-  // update gToken price
-  let assetPriceUSD: BigDecimal;
-
-  const tryPrice = gTokenContract.try_getAssetPrice();
-  if (tryPrice.reverted) {
-    log.warning(
-      "[handleReserveDataUpdated] Token price not found in Market: {}",
-      [market.id]
-    );
-    return;
-  }
-
-  // get asset price normally
-  assetPriceUSD = tryPrice.value
-    .toBigDecimal()
-    .div(exponentToBigDecimal(DEFAULT_DECIMALS));
-
-  // update market prices
-  market.inputTokenPriceUSD = assetPriceUSD;
-
-  market.save();
 }
 
 export function handleDeposit(event: Deposit): void {
@@ -267,7 +230,6 @@ export function handleCollateralTransfer(event: CollateralTransfer): void {
   _handleTransfer(
     event,
     getProtocolData(),
-    PositionSide.LENDER,
     event.params.to,
     event.params.from
   );
@@ -277,7 +239,6 @@ export function handleVariableTransfer(event: VariableTransfer): void {
   _handleTransfer(
     event,
     getProtocolData(),
-    PositionSide.BORROWER,
     event.params.to,
     event.params.from
   );
@@ -286,7 +247,6 @@ export function handleVariableTransfer(event: VariableTransfer): void {
 function _handleTransfer(
   event: ethereum.Event,
   protocolData: ProtocolData,
-  positionSide: string,
   to: Address,
   from: Address
 ): void {
@@ -372,26 +332,40 @@ export function handleBlock(block: ethereum.Block): void {
           let accountBorrowUSD = BIGDECIMAL_ZERO;
 
           for (let j = 0; j < accMarkets.length; j++) {
-            const price = prices.get(accMarkets[j].market);
+            const accMarket = accMarkets[j];
+            if (
+              accMarket.supplied.equals(BigInt.fromI32(0)) &&
+              accMarket.borrowed.equals(BigInt.fromI32(0))
+            ) {
+              store.remove("MarketAccount", accMarket.id);
+              continue;
+            }
+
+            const price = prices.get(accMarket.market);
             if (!price) {
               throw new Error("[handleBlock] Price not found");
             }
-
-            const marketDecimals = decimals.get(accMarkets[j].market)!.toI32();
+            const marketDecimals = decimals.get(accMarket.market)!.toI32();
 
             // Calculate the total supply USD
-            if (accMarkets[j].supplied.gt(BigInt.fromI32(0))) {
-              const supplyAmount = accMarkets[j].supplied.toBigDecimal();
+            if (accMarket.supplied.gt(BigInt.fromI32(0))) {
+              const supplyAmount = accMarket.supplied.toBigDecimal();
               const supplyAmountUSD = supplyAmount
                 .div(exponentToBigDecimal(marketDecimals))
                 .times(price);
               totalSupplyUSD = totalSupplyUSD.plus(supplyAmountUSD);
               accountSupplyUSD = accountSupplyUSD.plus(supplyAmountUSD);
             }
+            if (accountSupplyUSD.lt(BIGDECIMAL_ONE)) {
+              log.warning("[handleBlock] Account supply less than 1: {}", [
+                account.id,
+              ]);
+              continue;
+            }
 
             // Calculate the total borrow USD
-            if (accMarkets[j].borrowed.gt(BigInt.fromI32(0))) {
-              const borrowAmount = accMarkets[j].borrowed.toBigDecimal();
+            if (accMarket.borrowed.gt(BigInt.fromI32(0))) {
+              const borrowAmount = accMarket.borrowed.toBigDecimal();
               const borrowAmountUSD = borrowAmount
                 .div(exponentToBigDecimal(marketDecimals))
                 .times(price);

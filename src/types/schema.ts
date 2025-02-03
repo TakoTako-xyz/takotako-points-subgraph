@@ -469,19 +469,6 @@ export class Market extends Entity {
     }
   }
 
-  get inputTokenPriceUSD(): BigDecimal {
-    let value = this.get("inputTokenPriceUSD");
-    if (!value || value.kind == ValueKind.NULL) {
-      throw new Error("Cannot return null for a required field.");
-    } else {
-      return value.toBigDecimal();
-    }
-  }
-
-  set inputTokenPriceUSD(value: BigDecimal) {
-    this.set("inputTokenPriceUSD", Value.fromBigDecimal(value));
-  }
-
   get createdTimestamp(): BigInt {
     let value = this.get("createdTimestamp");
     if (!value || value.kind == ValueKind.NULL) {

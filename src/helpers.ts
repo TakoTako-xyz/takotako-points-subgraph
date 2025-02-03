@@ -171,7 +171,6 @@ export function getOrCreateMarket(
     // these are set in reserveInitialized()
     market.createdTimestamp = BIGINT_ZERO;
     market.createdBlockNumber = BIGINT_ZERO;
-    market.inputTokenPriceUSD = BIGDECIMAL_ZERO;
 
     market.save();
   }
