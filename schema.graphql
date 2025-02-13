@@ -191,6 +191,9 @@ type Snapshot @entity {
   " Protocol "
   protocol: Protocol!
 
+  " All markets that belong to this snapshot "
+  marketSnapshots: [MarketSnapshot!]! @derivedFrom(field: "snapshot")
+
   " Number of accounts that made deposits on this day "
   accountCount: Int!
 
@@ -201,4 +204,27 @@ type Snapshot @entity {
   totalBorrowUSD: BigDecimal!
 
   points: BigDecimal!
+}
+
+type MarketSnapshot @entity {
+  " { Day timestamp } "
+  id: ID!
+
+  " Market "
+  market: Market!
+
+  " Snapshot "
+  snapshot: Snapshot!
+
+  " Number of accounts that made deposits on this day "
+  accountCount: Int!
+
+  " Total supply of tokens in USD "
+  totalSupplyUSD: BigDecimal!
+
+  " Total borrow of tokens in USD "
+  totalBorrowUSD: BigDecimal!
+
+  " Market price in USD "
+  priceUSD: BigDecimal!
 }

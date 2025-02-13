@@ -15,6 +15,7 @@ import {
   Account,
   Market,
   MarketAccount,
+  MarketSnapshot,
   Protocol,
   ProtocolAccount,
   Token,
@@ -216,6 +217,24 @@ export function getOrCreateMarketAccount(
     accountMarket.borrowed = BIGINT_ZERO;
   }
   return accountMarket;
+}
+
+export function getOrCreateMarketSnapshot(
+  snapshotId: string,
+  marketId: string
+): MarketSnapshot {
+  const marketSnapshotID = snapshotId.concat("-").concat(marketId);
+  let marketSnapshot = MarketSnapshot.load(marketSnapshotID);
+  if (!marketSnapshot) {
+    marketSnapshot = new MarketSnapshot(marketSnapshotID);
+    marketSnapshot.market = marketId;
+    marketSnapshot.snapshot = snapshotId;
+    marketSnapshot.accountCount = 0;
+    marketSnapshot.totalSupplyUSD = BIGDECIMAL_ZERO;
+    marketSnapshot.totalBorrowUSD = BIGDECIMAL_ZERO;
+    marketSnapshot.priceUSD = BIGDECIMAL_ZERO;
+  }
+  return marketSnapshot;
 }
 
 export function updateMarketAccount(market: Market, accountID: string): void {

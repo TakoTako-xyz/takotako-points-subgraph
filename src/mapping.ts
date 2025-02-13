@@ -11,6 +11,7 @@ import { ProtocolData } from "./types";
 import {
   BIGDECIMAL_ONE,
   BIGDECIMAL_ZERO,
+  PositionSide,
   TakoTakoProtocol,
   ZERO_ADDRESS,
 } from "./constants";
@@ -23,19 +24,15 @@ import {
 } from "./types/LendingPool/LendingPool";
 import { Transfer as CollateralTransfer } from "./types/templates/AToken/AToken";
 import { Transfer as VariableTransfer } from "./types/templates/VariableDebtToken/VariableDebtToken";
-import {
-  Account,
-  Market,
-  ProtocolAccount,
-  Snapshot,
-  Token,
-} from "./types/schema";
+import { Account, Market, ProtocolAccount, Snapshot } from "./types/schema";
 import {
   exponentToBigDecimal,
   getDecimalsOfMarkets,
   getMarketByAuxillaryToken,
   getOrCreateAccount,
   getOrCreateMarket,
+  getOrCreateMarketAccount,
+  getOrCreateMarketSnapshot,
   getOrCreateProtocol,
   getOrCreateToken,
   getPriceOfMarkets,
@@ -85,6 +82,7 @@ export function handleReserveInitialized(event: ReserveInitialized): void {
 }
 
 export function handleDeposit(event: Deposit): void {
+  const amount = event.params.amount;
   const marketId = event.params.reserve;
   const protocolData = getProtocolData();
   const accountID = event.params.onBehalfOf;
@@ -102,13 +100,17 @@ export function handleDeposit(event: Deposit): void {
   const account = getOrCreateAccount(accountID.toHexString(), protocol);
 
   // update market account
-  updateMarketAccount(market, account.id);
+  // updateMarketAccount(market, account.id);
+  const accountMarket = getOrCreateMarketAccount(market.id, account.id);
+  accountMarket.supplied = accountMarket.supplied.plus(amount);
+  accountMarket.save();
 
   protocol.save();
   market.save();
 }
 
 export function handleWithdraw(event: Withdraw): void {
+  const amount = event.params.amount;
   const marketId = event.params.reserve;
   const protocolData = getProtocolData();
   const accountID = event.params.to;
@@ -126,10 +128,14 @@ export function handleWithdraw(event: Withdraw): void {
   const account = getOrCreateAccount(accountID.toHexString(), protocol);
 
   // update market account
-  updateMarketAccount(market, account.id);
+  // updateMarketAccount(market, account.id);
+  const accountMarket = getOrCreateMarketAccount(market.id, account.id);
+  accountMarket.supplied = accountMarket.supplied.minus(amount);
+  accountMarket.save();
 }
 
 export function handleBorrow(event: Borrow): void {
+  const amount = event.params.amount;
   const marketId = event.params.reserve;
   const protocolData = getProtocolData();
   const accountID = event.params.onBehalfOf;
@@ -146,7 +152,10 @@ export function handleBorrow(event: Borrow): void {
   const account = getOrCreateAccount(accountID.toHexString(), protocol);
 
   // update market account
-  updateMarketAccount(market, account.id);
+  // updateMarketAccount(market, account.id);
+  const accountMarket = getOrCreateMarketAccount(market.id, account.id);
+  accountMarket.borrowed = accountMarket.borrowed.plus(amount);
+  accountMarket.save();
 
   // update metrics
   protocol.save();
@@ -154,6 +163,7 @@ export function handleBorrow(event: Borrow): void {
 }
 
 export function handleRepay(event: Repay): void {
+  const amount = event.params.amount;
   const marketId = event.params.reserve;
   const protocolData = getProtocolData();
   const accountID = event.params.user;
@@ -171,55 +181,51 @@ export function handleRepay(event: Repay): void {
   const account = getOrCreateAccount(accountID.toHexString(), protocol);
 
   // update market account
-  updateMarketAccount(market, account.id);
+  // updateMarketAccount(market, account.id);
+  const accountMarket = getOrCreateMarketAccount(market.id, account.id);
+  accountMarket.borrowed = accountMarket.borrowed.minus(amount);
+  accountMarket.save();
 }
 
 export function handleLiquidationCall(event: LiquidationCall): void {
-  const marketId = event.params.collateralAsset;
-  const protocolData = getProtocolData();
-  const liquidator = event.params.liquidator;
-  const borrower = event.params.user;
-  const debtToken = event.params.debtAsset;
-
-  const market = Market.load(marketId.toHexString());
-  if (!market) {
-    log.warning("[Liquidate] Market not found on protocol: {}", [
-      marketId.toHexString(),
-    ]);
-    return;
-  }
-  const protocol = getOrCreateProtocol(protocolData);
-
-  // update accounts
-  getOrCreateAccount(liquidator.toHexString(), protocol);
-  getOrCreateAccount(borrower.toHexString(), protocol);
-
-  // update market account for liquidator and borrower
-  updateMarketAccount(market, liquidator.toHexString());
-  updateMarketAccount(market, borrower.toHexString());
-
-  const repayTokenMarket = Market.load(debtToken.toHexString());
-  if (!repayTokenMarket) {
-    log.warning("[Liquidate] Repay token market not found on protocol: {}", [
-      debtToken.toHexString(),
-    ]);
-    return;
-  }
-
-  // update market account for liquidator and borrower
-  updateMarketAccount(repayTokenMarket, liquidator.toHexString());
-  updateMarketAccount(repayTokenMarket, borrower.toHexString());
-
-  const debtAsset = Token.load(debtToken.toHexString());
-  if (!debtAsset) {
-    log.warning("[Liquidate] Debt asset not found on protocol: {}", [
-      debtToken.toHexString(),
-    ]);
-    return;
-  }
-
-  protocol.save();
-  market.save();
+  // const marketId = event.params.collateralAsset;
+  // const protocolData = getProtocolData();
+  // const liquidator = event.params.liquidator;
+  // const borrower = event.params.user;
+  // const debtToken = event.params.debtAsset;
+  // const market = Market.load(marketId.toHexString());
+  // if (!market) {
+  //   log.warning("[Liquidate] Market not found on protocol: {}", [
+  //     marketId.toHexString(),
+  //   ]);
+  //   return;
+  // }
+  // const protocol = getOrCreateProtocol(protocolData);
+  // // update accounts
+  // getOrCreateAccount(liquidator.toHexString(), protocol);
+  // getOrCreateAccount(borrower.toHexString(), protocol);
+  // // update market account for liquidator and borrower
+  // updateMarketAccount(market, liquidator.toHexString());
+  // updateMarketAccount(market, borrower.toHexString());
+  // const repayTokenMarket = Market.load(debtToken.toHexString());
+  // if (!repayTokenMarket) {
+  //   log.warning("[Liquidate] Repay token market not found on protocol: {}", [
+  //     debtToken.toHexString(),
+  //   ]);
+  //   return;
+  // }
+  // // update market account for liquidator and borrower
+  // updateMarketAccount(repayTokenMarket, liquidator.toHexString());
+  // updateMarketAccount(repayTokenMarket, borrower.toHexString());
+  // const debtAsset = Token.load(debtToken.toHexString());
+  // if (!debtAsset) {
+  //   log.warning("[Liquidate] Debt asset not found on protocol: {}", [
+  //     debtToken.toHexString(),
+  //   ]);
+  //   return;
+  // }
+  // protocol.save();
+  // market.save();
 }
 
 /////////////////////////
@@ -229,7 +235,9 @@ export function handleLiquidationCall(event: LiquidationCall): void {
 export function handleCollateralTransfer(event: CollateralTransfer): void {
   _handleTransfer(
     event,
+    event.params.value,
     getProtocolData(),
+    PositionSide.LENDER,
     event.params.to,
     event.params.from
   );
@@ -238,7 +246,9 @@ export function handleCollateralTransfer(event: CollateralTransfer): void {
 export function handleVariableTransfer(event: VariableTransfer): void {
   _handleTransfer(
     event,
+    event.params.value,
     getProtocolData(),
+    PositionSide.BORROWER,
     event.params.to,
     event.params.from
   );
@@ -246,7 +256,9 @@ export function handleVariableTransfer(event: VariableTransfer): void {
 
 function _handleTransfer(
   event: ethereum.Event,
+  amount: BigInt,
   protocolData: ProtocolData,
+  side: string,
   to: Address,
   from: Address
 ): void {
@@ -280,12 +292,29 @@ function _handleTransfer(
 
   // update balance from sender
   if (fromAccount) {
-    updateMarketAccount(market, fromAccount.id);
+    // updateMarketAccount(market, fromAccount.id);
+    const fromAccountMarket = getOrCreateMarketAccount(
+      market.id,
+      fromAccount.id
+    );
+    if (side == PositionSide.BORROWER) {
+      fromAccountMarket.borrowed = fromAccountMarket.borrowed.minus(amount);
+    } else {
+      fromAccountMarket.supplied = fromAccountMarket.supplied.minus(amount);
+    }
+    fromAccountMarket.save();
   }
 
   // update balance from receiver
   if (toAccount) {
-    updateMarketAccount(market, toAccount.id);
+    // updateMarketAccount(market, toAccount.id);
+    const toAccountMarket = getOrCreateMarketAccount(market.id, toAccount.id);
+    if (side == PositionSide.BORROWER) {
+      toAccountMarket.borrowed = toAccountMarket.borrowed.plus(amount);
+    } else {
+      toAccountMarket.supplied = toAccountMarket.supplied.plus(amount);
+    }
+    toAccountMarket.save();
   }
 }
 
@@ -312,6 +341,7 @@ export function handleBlock(block: ethereum.Block): void {
     snapshot.totalSupplyUSD = BIGDECIMAL_ZERO;
     snapshot.totalBorrowUSD = BIGDECIMAL_ZERO;
     snapshot.points = BIGDECIMAL_ZERO;
+    snapshot.save();
 
     const prices = getPriceOfMarkets(protocol);
     const decimals = getDecimalsOfMarkets(protocol);
@@ -347,6 +377,10 @@ export function handleBlock(block: ethereum.Block): void {
             }
             const marketDecimals = decimals.get(accMarket.market)!.toI32();
 
+            const marketSnapshot = getOrCreateMarketSnapshot(
+              snapshot.id,
+              accMarket.market
+            );
             // Calculate the total supply USD
             if (accMarket.supplied.gt(BigInt.fromI32(0))) {
               const supplyAmount = accMarket.supplied.toBigDecimal();
@@ -355,6 +389,8 @@ export function handleBlock(block: ethereum.Block): void {
                 .times(price);
               totalSupplyUSD = totalSupplyUSD.plus(supplyAmountUSD);
               accountSupplyUSD = accountSupplyUSD.plus(supplyAmountUSD);
+              marketSnapshot.totalSupplyUSD =
+                marketSnapshot.totalSupplyUSD.plus(supplyAmountUSD);
             }
             if (accountSupplyUSD.lt(BIGDECIMAL_ONE)) {
               log.warning("[handleBlock] Account supply less than 1: {}", [
@@ -371,7 +407,12 @@ export function handleBlock(block: ethereum.Block): void {
                 .times(price);
               totalBorrowUSD = totalBorrowUSD.plus(borrowAmountUSD);
               accountBorrowUSD = accountBorrowUSD.plus(borrowAmountUSD);
+              marketSnapshot.totalBorrowUSD =
+                marketSnapshot.totalBorrowUSD.plus(borrowAmountUSD);
             }
+            marketSnapshot.accountCount += 1;
+            marketSnapshot.priceUSD = price;
+            marketSnapshot.save();
           }
 
           // TODO: save account

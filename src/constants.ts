@@ -22,3 +22,8 @@ export namespace TakoTakoProtocol {
   export const PROTOCOL_ADDRESS = "0x225BD906D398B1748d7DeF4a35A96f6E5eFD1420"; // LendingPoolAddressesProvider
   export const NETWORK = Network.TAIKO;
 }
+
+export namespace PositionSide {
+  export const LENDER = "LENDER";
+  export const BORROWER = "BORROWER";
+}

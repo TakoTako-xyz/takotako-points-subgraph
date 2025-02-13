@@ -7,8 +7,10 @@
     "build-ipfs": "graph build --ipfs /ip4/127.0.0.1/tcp/5001 subgraph.yaml",
     "build-wast": "graph build -t wast subgraph.yaml",
     "codegen": "graph codegen --output-dir src/types/ subgraph.yaml",
+    "create:taiko:ormi": "yarn prepare:taiko && 0xgraph create takotako-points",
     "prepare:taiko": "yarn codegen && yarn build",
-    "deploy:taiko": "yarn prepare:taiko && goldsky subgraph deploy takotako-points/1.0.3"
+    "deploy:taiko:goldsky": "yarn prepare:taiko && goldsky subgraph deploy takotako-points/1.0.4",
+    "deploy:taiko:ormi": "yarn prepare:taiko && 0xgraph deploy takotako-points"
   },
   "devDependencies": {
     "@graphprotocol/graph-cli": "^0.90.0",
