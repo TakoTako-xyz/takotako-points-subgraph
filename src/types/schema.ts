@@ -805,6 +805,19 @@ export class Snapshot extends Entity {
     this.set("accountCount", Value.fromI32(value));
   }
 
+  get finalized(): boolean {
+    let value = this.get("finalized");
+    if (!value || value.kind == ValueKind.NULL) {
+      return false;
+    } else {
+      return value.toBoolean();
+    }
+  }
+
+  set finalized(value: boolean) {
+    this.set("finalized", Value.fromBoolean(value));
+  }
+
   get totalSupplyUSD(): BigDecimal {
     let value = this.get("totalSupplyUSD");
     if (!value || value.kind == ValueKind.NULL) {

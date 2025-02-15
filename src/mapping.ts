@@ -36,7 +36,6 @@ import {
   getOrCreateProtocol,
   getOrCreateToken,
   getPriceOfMarkets,
-  updateMarketAccount,
 } from "./helpers";
 import {
   AToken as ATokenTemplate,
@@ -330,114 +329,127 @@ export function handleBlock(block: ethereum.Block): void {
 
   // Check if an entity with this ID already exists
   let snapshot = Snapshot.load(uniqueId);
-  if (snapshot == null) {
+  if (!snapshot) {
     // Create a new DailyEntity if it doesn't exist
     snapshot = new Snapshot(uniqueId);
     snapshot.timestamp = BigInt.fromI32(startOfDayTimestamp);
 
-    // Count the total number of Account entities in the Subgraph
-    snapshot.accountCount = protocol.cumulativeUniqueUsers;
     snapshot.protocol = protocol.id;
+    // Count the total number of Account entities in the Subgraph
+    snapshot.accountCount = 0;
+    snapshot.finalized = false;
     snapshot.totalSupplyUSD = BIGDECIMAL_ZERO;
     snapshot.totalBorrowUSD = BIGDECIMAL_ZERO;
     snapshot.points = BIGDECIMAL_ZERO;
     snapshot.save();
+  }
 
-    const prices = getPriceOfMarkets(protocol);
-    const decimals = getDecimalsOfMarkets(protocol);
+  // If the snapshot is already finalized, return
+  if (snapshot.finalized) {
+    return;
+  }
 
-    let totalSupplyUSD = BIGDECIMAL_ZERO;
-    let totalBorrowUSD = BIGDECIMAL_ZERO;
+  const prices = getPriceOfMarkets(protocol);
+  const decimals = getDecimalsOfMarkets(protocol);
 
-    for (let i = 0; i < protocol.cumulativeUniqueUsers; i++) {
-      let procotolAccount = ProtocolAccount.load(`${protocol.id}-${i}`);
-      if (procotolAccount != null) {
-        const account = Account.load(procotolAccount.account);
-        if (account == null) {
-          throw new Error("[handleBlock] Account not found");
-        } else {
-          const accMarkets = account.markets.load();
+  let totalSupplyUSD = BIGDECIMAL_ZERO;
+  let totalBorrowUSD = BIGDECIMAL_ZERO;
 
-          let accountSupplyUSD = BIGDECIMAL_ZERO;
-          let accountBorrowUSD = BIGDECIMAL_ZERO;
+  // Process the next 20000 accounts
+  let maxUserIndex = snapshot.accountCount + 20000;
+  if (maxUserIndex > protocol.cumulativeUniqueUsers) {
+    maxUserIndex = protocol.cumulativeUniqueUsers;
+  }
+  for (let i = snapshot.accountCount; i < maxUserIndex; i++) {
+    let procotolAccount = ProtocolAccount.load(`${protocol.id}-${i}`);
+    if (procotolAccount != null) {
+      const account = Account.load(procotolAccount.account);
+      if (account == null) {
+        throw new Error("[handleBlock] Account not found");
+      } else {
+        const accMarkets = account.markets.load();
 
-          for (let j = 0; j < accMarkets.length; j++) {
-            const accMarket = accMarkets[j];
-            if (
-              accMarket.supplied.equals(BigInt.fromI32(0)) &&
-              accMarket.borrowed.equals(BigInt.fromI32(0))
-            ) {
-              store.remove("MarketAccount", accMarket.id);
-              continue;
-            }
+        let accountSupplyUSD = BIGDECIMAL_ZERO;
+        let accountBorrowUSD = BIGDECIMAL_ZERO;
 
-            const price = prices.get(accMarket.market);
-            if (!price) {
-              throw new Error("[handleBlock] Price not found");
-            }
-            const marketDecimals = decimals.get(accMarket.market)!.toI32();
-
-            const marketSnapshot = getOrCreateMarketSnapshot(
-              snapshot.id,
-              accMarket.market
-            );
-            // Calculate the total supply USD
-            if (accMarket.supplied.gt(BigInt.fromI32(0))) {
-              const supplyAmount = accMarket.supplied.toBigDecimal();
-              const supplyAmountUSD = supplyAmount
-                .div(exponentToBigDecimal(marketDecimals))
-                .times(price);
-              totalSupplyUSD = totalSupplyUSD.plus(supplyAmountUSD);
-              accountSupplyUSD = accountSupplyUSD.plus(supplyAmountUSD);
-              marketSnapshot.totalSupplyUSD =
-                marketSnapshot.totalSupplyUSD.plus(supplyAmountUSD);
-            }
-            if (accountSupplyUSD.lt(BIGDECIMAL_ONE)) {
-              log.warning("[handleBlock] Account supply less than 1: {}", [
-                account.id,
-              ]);
-              continue;
-            }
-
-            // Calculate the total borrow USD
-            if (accMarket.borrowed.gt(BigInt.fromI32(0))) {
-              const borrowAmount = accMarket.borrowed.toBigDecimal();
-              const borrowAmountUSD = borrowAmount
-                .div(exponentToBigDecimal(marketDecimals))
-                .times(price);
-              totalBorrowUSD = totalBorrowUSD.plus(borrowAmountUSD);
-              accountBorrowUSD = accountBorrowUSD.plus(borrowAmountUSD);
-              marketSnapshot.totalBorrowUSD =
-                marketSnapshot.totalBorrowUSD.plus(borrowAmountUSD);
-            }
-            marketSnapshot.accountCount += 1;
-            marketSnapshot.priceUSD = price;
-            marketSnapshot.save();
+        for (let j = 0; j < accMarkets.length; j++) {
+          const accMarket = accMarkets[j];
+          if (
+            accMarket.supplied.equals(BigInt.fromI32(0)) &&
+            accMarket.borrowed.equals(BigInt.fromI32(0))
+          ) {
+            store.remove("MarketAccount", accMarket.id);
+            continue;
           }
 
-          // TODO: save account
-          account.totalSupplyUSD = accountSupplyUSD;
-          account.totalBorrowUSD = accountBorrowUSD;
-          account.totalPoints = account.totalPoints
-            .plus(accountSupplyUSD.times(new BigDecimal(BigInt.fromI32(10))))
-            .plus(accountBorrowUSD.times(new BigDecimal(BigInt.fromI32(50))));
-          account.save();
+          const price = prices.get(accMarket.market);
+          if (!price) {
+            throw new Error("[handleBlock] Price not found");
+          }
+          const marketDecimals = decimals.get(accMarket.market)!.toI32();
+
+          const marketSnapshot = getOrCreateMarketSnapshot(
+            snapshot.id,
+            accMarket.market
+          );
+          // Calculate the total supply USD
+          if (accMarket.supplied.gt(BigInt.fromI32(0))) {
+            const supplyAmount = accMarket.supplied.toBigDecimal();
+            const supplyAmountUSD = supplyAmount
+              .div(exponentToBigDecimal(marketDecimals))
+              .times(price);
+            totalSupplyUSD = totalSupplyUSD.plus(supplyAmountUSD);
+            accountSupplyUSD = accountSupplyUSD.plus(supplyAmountUSD);
+            marketSnapshot.totalSupplyUSD =
+              marketSnapshot.totalSupplyUSD.plus(supplyAmountUSD);
+          }
+          if (accountSupplyUSD.lt(BIGDECIMAL_ONE)) {
+            log.warning("[handleBlock] Account supply less than 1: {}", [
+              account.id,
+            ]);
+            continue;
+          }
+
+          // Calculate the total borrow USD
+          if (accMarket.borrowed.gt(BigInt.fromI32(0))) {
+            const borrowAmount = accMarket.borrowed.toBigDecimal();
+            const borrowAmountUSD = borrowAmount
+              .div(exponentToBigDecimal(marketDecimals))
+              .times(price);
+            totalBorrowUSD = totalBorrowUSD.plus(borrowAmountUSD);
+            accountBorrowUSD = accountBorrowUSD.plus(borrowAmountUSD);
+            marketSnapshot.totalBorrowUSD =
+              marketSnapshot.totalBorrowUSD.plus(borrowAmountUSD);
+          }
+          marketSnapshot.accountCount += 1;
+          marketSnapshot.priceUSD = price;
+          marketSnapshot.save();
         }
+
+        // TODO: save account
+        account.totalSupplyUSD = accountSupplyUSD;
+        account.totalBorrowUSD = accountBorrowUSD;
+        account.totalPoints = account.totalPoints
+          .plus(accountSupplyUSD.times(new BigDecimal(BigInt.fromI32(10))))
+          .plus(accountBorrowUSD.times(new BigDecimal(BigInt.fromI32(50))));
+        account.save();
       }
     }
-
-    // Save the snapshot
-    snapshot.totalSupplyUSD = totalSupplyUSD;
-    snapshot.totalBorrowUSD = totalBorrowUSD;
-    snapshot.points = totalSupplyUSD
-      .times(new BigDecimal(BigInt.fromI32(10)))
-      .plus(totalBorrowUSD.times(new BigDecimal(BigInt.fromI32(50))));
-    snapshot.save();
-
-    // Update the protocol entity
-    protocol.totalSupplyUSD = snapshot.totalSupplyUSD;
-    protocol.totalBorrowUSD = snapshot.totalBorrowUSD;
-    protocol.totalPoints = protocol.totalPoints.plus(snapshot.points);
-    protocol.save();
+    snapshot.accountCount += 1;
   }
+
+  // Save the snapshot
+  snapshot.totalSupplyUSD = snapshot.totalSupplyUSD.plus(totalSupplyUSD);
+  snapshot.totalBorrowUSD = snapshot.totalBorrowUSD.plus(totalBorrowUSD);
+  snapshot.points = snapshot.totalSupplyUSD
+    .times(new BigDecimal(BigInt.fromI32(10)))
+    .plus(snapshot.totalBorrowUSD.times(new BigDecimal(BigInt.fromI32(50))));
+  snapshot.finalized = snapshot.accountCount == protocol.cumulativeUniqueUsers;
+  snapshot.save();
+
+  // Update the protocol entity
+  protocol.totalSupplyUSD = snapshot.totalSupplyUSD;
+  protocol.totalBorrowUSD = snapshot.totalBorrowUSD;
+  protocol.totalPoints = protocol.totalPoints.plus(snapshot.points);
+  protocol.save();
 }

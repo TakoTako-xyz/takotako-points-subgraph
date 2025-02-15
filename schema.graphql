@@ -197,6 +197,9 @@ type Snapshot @entity {
   " Number of accounts that made deposits on this day "
   accountCount: Int!
 
+  " Whether the snapshot is finalized or not "
+  finalized: Boolean!
+
   " Total supply of tokens in USD "
   totalSupplyUSD: BigDecimal!
 
